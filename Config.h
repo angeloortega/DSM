@@ -1,0 +1,5 @@
+#ifndef COMMON_INCLUDE_FILE
+#define COMMON_INCLUDE_FILE
+#define PORT 8080
+#define BUFFER_SIZE 4096
+#endif
