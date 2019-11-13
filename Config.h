@@ -2,4 +2,5 @@
 #define COMMON_INCLUDE_FILE
 #define PORT 8080
 #define BUFFER_SIZE 4096
+#define QUEUE_SIZE 25
 #endif
