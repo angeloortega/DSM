@@ -8,4 +8,5 @@
 #define MALLOC_MESSAGE "00\r\n%d\r\n\r\n"
 #define SWAP_MESSAGE "01\r\n%d\r\n%d\r\n\r\n"
 #define CLOSE_MESSAGE "02\r\n%d\r\n\r\n"
+#define USAGE_MESSAGE "03\r\n%d\r\n\r\n"
 #endif

@@ -13,7 +13,7 @@
 #include <pthread.h>
 #include <fcntl.h> /* Added for the nonblocking socket */
 
-typedef enum {LOG=0} resource;
+typedef enum {LOG=0, TABLE=1} resource;
 
 union semun {
     int val;
@@ -21,20 +21,21 @@ union semun {
     unsigned short  *array;
 };
 
-struct table_entry
+typedef struct
 {
     int residing_node;
     int valid;
     time_t last_used;
-};
+}table_entry;
 
-static int semaphores[1];
+static int semaphores[2];
 static int sockfd, new_fd;  /* listen on sock_fd, new connection on new_fd */
 static int last_fd;	/* Thelast sockfd that is connected	*/
 static int node_amount;
+static int page_amount;
 static long memory_amount;
 static char *logFile;
-
+table_entry* table;
 
 static int semaphore_v(resource res){
 	struct sembuf sem_b;
@@ -66,7 +67,7 @@ static void del_semvalue(void) // This removes the semaphore from the system
 { 
 	union semun sem_union;
 
-	for(int i = 0; i < 5 ; i++){
+	for(int i = 0; i < 2 ; i++){
 		if (semctl(semaphores[i], 0, IPC_RMID, sem_union) == -1) 
 			perror("Failed to delete semaphore\n");
 	}
@@ -78,7 +79,7 @@ static int set_semvalue(void) // This initializes the semaphore
 	int value = 1;
 	sem_union.val = 1; 
 	int random = 0;
-	for(int i = 0; i < 5 ; i++){
+	for(int i = 0; i < 2 ; i++){
 		random = rand()%8999+1000;
 		semaphores[(int) i] = semget((key_t) random,1, 0666 | IPC_CREAT);
 		if (semctl(semaphores[i], 0, SETVAL, sem_union) == -1)
@@ -97,6 +98,28 @@ void closeServer(){
     printf("Closing server...\n");
     serverLog("STATUS","server shutting down");
     del_semvalue();
+}
+
+int pageVictim(int source){
+    //Get the least recently used page of the source node
+    int victim = -1;
+    if (semaphore_p(TABLE)){
+        time_t victimDate = time(NULL);
+        for(int i = 0; i < page_amount; i++){
+            if(table[i].residing_node == source && table[i].valid && difftime(table[i].last_used,victimDate) < 0){
+                victimDate = table[i].last_used;
+                victim = i;
+            }
+        }
+			if (semaphore_v(TABLE)==-1)
+				exit(EXIT_FAILURE);
+	}
+    return victim;
+}
+
+void pageUsage(int page){
+    table[page].last_used = time(NULL);
+    table[page].valid = 0;
 }
 
 void serverLog(char* type, char* message){
@@ -175,6 +198,20 @@ void *clientHandler(void *arg){
 
     if(strcmp(request[0],"01") == 0){
         //Swap
+        if (semaphore_p(TABLE)){
+            void* intermediate = malloc(PAGE_SIZE);
+
+            char *result = strstr(buffer, "\r\n\r\n");
+            result = result + 4;
+            int pageToSend = pageVictim(fd);
+            //TODO get page and set it in intermediate
+            write(fd,&intermediate, (size_t)PAGE_SIZE);
+            //TODO save intermediate in local page
+            memcpy(intermediate,result,(size_t) PAGE_SIZE);
+            free(intermediate);
+			if (semaphore_v(TABLE)==-1)
+				exit(EXIT_FAILURE);
+	    }
         free(request[2]);
     }
     else{
@@ -182,7 +219,12 @@ void *clientHandler(void *arg){
         //Close
 
         }
+        
         else{
+            if(strcmp(request[0],"03") == 0){
+                //usage
+                pageUsage(atoi(request[1]));
+            }
             //Unsupported request
         }
     }
@@ -227,11 +269,21 @@ int main(int argc, char* argv[]){
     int	i;
 	srand(time(NULL));
 
+    //Virtual address table creation
+    page_amount = (memory_amount/PAGE_SIZE) + ( memory_amount % PAGE_SIZE == 0 ? 0 : 1);
+
+    table = malloc(page_amount* sizeof *table);
+
     if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
         perror("socket");
         exit(1);
     }
-
+    int pages_per_node = page_amount/node_amount;
+    for (int i = 0; i<page_amount; i++){
+        table[i].last_used = time(NULL);
+        table[i].residing_node = i / pages_per_node;
+        table[i].valid = 1;
+    }
     last_fd = sockfd;
 
     my_addr.sin_family = AF_INET;         /* host byte order */
