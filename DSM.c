@@ -131,64 +131,71 @@ void closeServer(){
     serverLog("STATUS","server shutting down");
     del_semvalue();
 }
+
+int nodePages(int node, int nodes, int pages){
+    return  node >= pages % nodes ? (int) pages/nodes: (int) pages/nodes + 1;
+}
+
 void initiallizeNodes(){
     for(int i = 0; i < node_amount; i++){
-        DSM_node_pages(node_sockets[node_amount], pages_per_node);
+        DSM_node_pages(node_sockets[i], nodePages(i, node_amount, page_amount));
     }
 }
 
 void *clientHandler(void *arg){
     int n;
-	char buffer[BUFFER_SIZE];
-	char *request[2];
-	//Read from client
-    int fd = *((int*)arg); 
-    if(recv(fd,buffer,sizeof(buffer),0) == -1)
-        serverLog("ERROR",strerror(errno));    
-    
-    parseRequest(request, buffer);
-    /*
-    #define INIT_MESSAGE "00\r\n%d\r\n\r\n"
-    #define WRITE_MESSAGE "01\r\n%d\r\n\r\n"
-    #define READ_MESSAGE "02\r\n%d\r\n\r\n"
-    #define CLOSE_MESSAGE "03\r\n%d\r\n\r\n"
-    #define INVALIDATE_MESSAGE "04\r\n%d\r\n\r\n"
-    */
-    if(strcmp(request[0],"01") == 0){
-        //write
-        char *result = strstr(buffer, "\r\n\r\n");
-        void *temp_page;
-        result = result + 4;
-        int page = atoi(request[1]);
-        memcpy(temp_page,result,(size_t) PAGE_SIZE); 
-        DSM_page_write(node_sockets[page%node_amount],(int) page/node_amount, temp_page);
-    }
-    else{
-        if(strcmp(request[0],"02") == 0){
+    char buffer[BUFFER_SIZE];
+    char *request[2];
+    int fd = *((int*)arg);
+    while(1){
+        //Read from client
+        if(recv(fd,buffer,sizeof(buffer),0) == -1)
+            serverLog("ERROR",strerror(errno));    
+        
+        parseRequest(request, buffer);
+        /*
+        #define INIT_MESSAGE "00\r\n%d\r\n\r\n"
+        #define WRITE_MESSAGE "01\r\n%d\r\n\r\n"
+        #define READ_MESSAGE "02\r\n%d\r\n\r\n"
+        #define CLOSE_MESSAGE "03\r\n%d\r\n\r\n"
+        #define INVALIDATE_MESSAGE "04\r\n%d\r\n\r\n"
+        */
+        if(strcmp(request[0],"01") == 0){
+            //write
+            char *result = strstr(buffer, "\r\n\r\n");
             void *temp_page;
+            result = result + 4;
             int page = atoi(request[1]);
-            temp_page = DSM_page_read(node_sockets[page%node_amount],(int) page/node_amount);
-            write(fd,temp_page, PAGE_SIZE);
-            valid[page] = 1;
+            memcpy(temp_page,result,(size_t) PAGE_SIZE); 
+            DSM_page_write(node_sockets[page%node_amount],(int) page/node_amount, temp_page);
         }
-        
         else{
-            if(strcmp(request[0],"03") == 0){
-                //CLOSE SOCKET TODO
-               // pageUsage(atoi(request[1]));
+            if(strcmp(request[0],"02") == 0){
+                void *temp_page;
+                int page = atoi(request[1]);
+                temp_page = DSM_page_read(node_sockets[page%node_amount],(int) page/node_amount);
+                write(fd,temp_page, PAGE_SIZE);
+                valid[page] = 1;
             }
+            
             else{
-                if(strcmp(request[0],"04") == 0){
-                    int page = atoi(request[1]);
-                    valid[page] = 0;
+                if(strcmp(request[0],"03") == 0){
+                    //CLOSE SOCKET TODO
+                // pageUsage(atoi(request[1]));
                 }
-                //Unsupported request
+                else{
+                    if(strcmp(request[0],"04") == 0){
+                        int page = atoi(request[1]);
+                        valid[page] = 0;
+                    }
+                    //Unsupported request
+                }
             }
         }
+            
+        free(request[0]);
+        free(request[1]);
     }
-        
-	free(request[0]);
-	free(request[1]);
 	pthread_exit(0);
 }
 
@@ -267,37 +274,25 @@ int main(int argc, char* argv[]){
         perror("listen");
         exit(1);
     }
-
+/*
     if ((new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size)) == -1) {
         perror("accept");
         }
-    fcntl(last_fd, F_SETFL, O_NONBLOCK); /* Change the socket into non-blocking state	*/
-    fcntl(new_fd, F_SETFL, O_NONBLOCK); /* Change the socket into non-blocking state	*/
+*/ 
+    //fcntl(last_fd, F_SETFL, O_NONBLOCK); /* Change the socket into non-blocking state	*/
 
     
     while(1){
-        for (i=sockfd;i<=last_fd;i++){
-            printf("Round number %d\n",i);
-                if (i = sockfd){
-                sin_size = sizeof(struct sockaddr_in);
-                    if ((new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size)) == -1) {
-                        perror("accept");
-                    }
-                    printf("server: got connection from %s\n", inet_ntoa(their_addr.sin_addr)); 
-                    fcntl(new_fd, F_SETFL, O_NONBLOCK);
-                    node_sockets[connected++] = new_fd;
-                    if(connected == node_amount)
-                        initiallizeNodes();
-                last_fd = new_fd;
-            }
-            else{
-                pthread_t thread;
-                int threadResult = pthread_create(&thread, NULL, clientHandler,(void*)&new_fd);
-                if(threadResult != 0){
-                    serverLog("ERROR",strerror(errno));
-                }
-            }
-    
+        //Opening connection
+        pthread_t thread;
+        new_fd = accept(sockfd,(struct sockaddr *)&their_addr, &sin_size);
+        //fcntl(new_fd, F_SETFL, O_NONBLOCK); /* Change the socket into non-blocking state	*/
+        node_sockets[connected++] = new_fd;
+        int threadResult = pthread_create(&thread, NULL, clientHandler,(void*)&new_fd);
+        if(threadResult != 0){
+            serverLog("ERROR",strerror(errno));
         }
+        if(connected == node_amount)
+            initiallizeNodes();
     }   
 }

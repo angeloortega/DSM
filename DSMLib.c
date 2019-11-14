@@ -30,7 +30,7 @@ void parseRequest(char* result[],char *request){
     result[1] = malloc(11);
     request = request + 3;
     
-    while(request && *request != '\r'){
+    while(request != '\0' && *request != '\r'){
             result[1][i] = *request; 
             request++;
             i++;
@@ -76,7 +76,7 @@ int DSM_node_init(void){
             perror("Can't connect to server: ");
             exit(1);
     }    
-    fcntl(sockfd, F_SETFL, O_NONBLOCK); /* Change the socket into non-blocking state	*/
+    //fcntl(sockfd, F_SETFL, O_NONBLOCK); /* Change the socket into non-blocking state	*/
     return sockfd; //Opens the socket
 }
 
