@@ -13,6 +13,10 @@
 #include <pthread.h>
 #include <fcntl.h> /* Added for the nonblocking socket */
 #include "DSMLib.h"
+#include <unistd.h>
+#include <arpa/inet.h>
+
+
 
 typedef enum {LOG=0, TABLE=1} resource;
 
@@ -27,12 +31,13 @@ static int sockfd, new_fd;  /* listen on sock_fd, new connection on new_fd */
 static int last_fd;	/* Thelast sockfd that is connected	*/
 static int node_amount;
 static int page_amount;
-static long memory_amount;
+static int memory_amount;
 static char *logFile;
 static int pages_per_node; 
 int* valid;
 int* node_sockets;
 int connected;
+
 static int semaphore_v(resource res){
 	struct sembuf sem_b;
 	sem_b.sem_num = 0; 
@@ -84,18 +89,6 @@ static int set_semvalue(void) // This initializes the semaphore
 	return(value);
 }
 
-void closeServer(){
-
-    //Close server and clean up sockets and memory
-    for (int i=sockfd;i<=last_fd;i++){
-        close(i);
-    }
-    close(sockfd);
-    printf("Closing server...\n");
-    serverLog("STATUS","server shutting down");
-    del_semvalue();
-}
-
 void pageUsage(int page){
     valid[page] = 0;
 }
@@ -127,28 +120,17 @@ void serverLog(char* type, char* message){
 	if (semaphore_v(LOG)==-1)
 		exit(EXIT_FAILURE);
 }
+void closeServer(){
 
-void parseRequest(char* result[],char *request){
-    const char * curLine = request;
-    char type[3];
-    int i = 0;
-    if(request && request+1){
-        type[0] = *request;
-        type[1] = *(request+1);
-        type[2] = '\0';
+    //Close server and clean up sockets and memory
+    for (int i=sockfd;i<=last_fd;i++){
+        close(i);
     }
-    result[0] = type;
-    result[1] = malloc(11);
-    request = request + 3;
-    
-    while(request && *request != "\r"){
-            result[1][i] = *request; 
-            request++;
-            i++;
-    }
-    result[1][i] = '\0';
-} 
-
+    close(sockfd);
+    printf("Closing server...\n");
+    serverLog("STATUS","server shutting down");
+    del_semvalue();
+}
 void initiallizeNodes(){
     for(int i = 0; i < node_amount; i++){
         DSM_node_pages(node_sockets[node_amount], pages_per_node);
@@ -183,11 +165,11 @@ void *clientHandler(void *arg){
     }
     else{
         if(strcmp(request[0],"02") == 0){
-        void *temp_page;
-        int page = atoi(request[1]);
-        temp_page = DSM_page_read(node_sockets[page%node_amount],(int) page/node_amount);
-        write(fd,temp_page, PAGE_SIZE);
-        valid[page] = 1;
+            void *temp_page;
+            int page = atoi(request[1]);
+            temp_page = DSM_page_read(node_sockets[page%node_amount],(int) page/node_amount);
+            write(fd,temp_page, PAGE_SIZE);
+            valid[page] = 1;
         }
         
         else{
@@ -211,6 +193,8 @@ void *clientHandler(void *arg){
 }
 
 int main(int argc, char* argv[]){
+    node_amount = 0;
+    memory_amount = 0;
     for(int i=0; i<argc; ++i){   
         if(strcmp(argv[i], "-L") == 0){
             if(i + 1 < argc){
@@ -223,7 +207,7 @@ int main(int argc, char* argv[]){
                 int length = strlen(nodes);
                 node_amount = 0;
                 for(int j=0; j < length; j++){
-                    node_amount = node_amount * 10 + (nodes[i] - '0');
+                    node_amount = node_amount * 10 + (nodes[j] - '0');
                 }
             }
         }
@@ -231,9 +215,9 @@ int main(int argc, char* argv[]){
             if(i + 1 < argc){
                 char *nodes = argv[i+1];
                 int length = strlen(nodes);
-                memory_amount = 0l;
+                memory_amount = 0;
                 for(int j=0; j < length; j++){
-                    memory_amount = memory_amount * 10l + (nodes[i] - '0');
+                    memory_amount = memory_amount * 10 + (nodes[j] - '0');
                 }
             }
         }
@@ -245,13 +229,14 @@ int main(int argc, char* argv[]){
     int	i;
     connected = 0;
 	srand(time(NULL));
-
     //Virtual address table creation
     page_amount = (memory_amount/PAGE_SIZE) + ( memory_amount % PAGE_SIZE == 0 ? 0 : 1);
 
     valid = malloc(sizeof(int) * page_amount);
     node_sockets = malloc(sizeof(int) * page_amount);
-    pages_per_node = page_amount/node_amount;
+    printf("page amount:%d node amount:%d",page_amount,node_amount);
+    fflush(stdout);
+    pages_per_node = (int) page_amount/node_amount;
     for (int i = 0; i<page_amount; i++){
         valid[i] = 1;
     }
@@ -306,12 +291,12 @@ int main(int argc, char* argv[]){
                 last_fd = new_fd;
             }
             else{
-            
                 pthread_t thread;
-                int threadResult = pthread_create(&thread, NULL, clientHandler,new_fd);
+                int threadResult = pthread_create(&thread, NULL, clientHandler,(void*)&new_fd);
                 if(threadResult != 0){
                     serverLog("ERROR",strerror(errno));
                 }
+            }
     
         }
     }   

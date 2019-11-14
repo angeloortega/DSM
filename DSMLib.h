@@ -9,3 +9,5 @@ void * DSM_page_read(int socket_fd,int page);
 void DSM_page_write(int socket_fd,int page, void * body);
 
 void DSM_page_invalidate(int socket_fd,int page);
+
+void parseRequest(char* result[],char *request);

@@ -10,91 +10,66 @@
 #include <sys/types.h> 
 #include <unistd.h> 
 #include <sys/time.h>
-#define IP_PROTOCOL 0 
-#define IP_ADDRESS "127.0.0.1" // localhost 
-#define PORT_NO 8080
-#define NET_BUF_SIZE 524288
-#define sendrecvflag 0 
-#define CHUNK_SIZE 524092   
+#include "DSMLib.h"
+#include <pthread.h>
+// node code
 
-// function to clear buffer 
-void clearBuf(char* b) 
-{ 
-    int i; 
-    for (i = 0; i < NET_BUF_SIZE; i++) 
-        b[i] = '\0'; 
-} 
-
-// function to receive file 
-int recvFile(char* buf, int s) 
-{ 
-    int i; 
-    unsigned char value; 
-    for (i = 0; i < s; i++) { 
-        value = buf[i]; 
-        if (value == 0) 
-            return 1; 
-        else
-            printf("%c", value); 
-    } 
-    return 0; 
-} 
-  
-// driver code 
 int main() 
 { 
-    long total = 0;
-    int sockfd, nBytes; 
-    struct sockaddr_in addr_con; 
-    int addrlen = sizeof(addr_con); 
-    addr_con.sin_family = AF_INET; 
-    addr_con.sin_port = htons(PORT_NO); 
-    addr_con.sin_addr.s_addr = inet_addr(IP_ADDRESS); 
-    unsigned char net_buf[NET_BUF_SIZE]; 
-    char fileName[128];
-    int chunkNumber = 0;
-    FILE* fp; 
-    
-    int flag = 1;
-    chunkNumber = 0;
-    total = 0; 
-
-    printf("\nPlease enter file name to receive or 'exit':\n");   
-    scanf("%s", fileName);
-    while (flag) { 
-        sockfd = socket(AF_INET, SOCK_STREAM, IP_PROTOCOL);
-        if (sockfd < 0) 
-            printf("\nfile descriptor not received!!\n"); 
-        else
-            printf("\nfile descriptor %d received\n", sockfd); 
-        if((connect(sockfd, (struct sockaddr *) &addr_con, addrlen)) == -1){
-            perror("Can't connect to server: ");
-            exit(1);
-        }    
-        // socket() 
-        clearBuf(net_buf);
-
-       
-        if(strstr(fileName,"video")!= NULL){
-            sprintf(net_buf, "GET /%s HTTP/1.1\r\nRange: bytes=%d-%d\r\n", fileName, chunkNumber*CHUNK_SIZE, chunkNumber*CHUNK_SIZE + CHUNK_SIZE);
+    int fd = DSM_node_init(); 
+    void** local_memory; 
+    char buffer[BUFFER_SIZE];
+    char *request[2];
+    while (1) { 
+        //Read from client
+        if(recv(fd,buffer,sizeof(buffer),0) == -1)
+            printf("ERROR");    
+        
+        parseRequest(request, buffer);
+        /*
+        #define INIT_MESSAGE "00\r\n%d\r\n\r\n"
+        #define WRITE_MESSAGE "01\r\n%d\r\n\r\n"
+        #define READ_MESSAGE "02\r\n%d\r\n\r\n"
+        #define CLOSE_MESSAGE "03\r\n%d\r\n\r\n"
+        #define INVALIDATE_MESSAGE "04\r\n%d\r\n\r\n"
+        */
+        if(strcmp(request[0],"00")){
+            int pages_per_node = atoi(request[1]);
+            char message[100];
+            local_memory = malloc(sizeof(void*) * pages_per_node);
+            for (int i = 0; i < pages_per_node; i++) {
+                local_memory[i] = malloc(sizeof(void*) * PAGE_SIZE);
+            }
+            sprintf(message,"%d", pages_per_node);
+            write(fd,&message[0],(size_t) strlen(message));
         }
         else{
-            sprintf(net_buf, "GET /%s HTTP/1.1", fileName);
+            if(strcmp(request[0],"01") == 0){
+                //write
+                char *result = strstr(buffer, "\r\n\r\n");
+                void *temp_page;
+                result = result + 4;
+                int page = atoi(request[1]);
+                memcpy(local_memory[page],result,(size_t) PAGE_SIZE); 
+            }
+            else{
+                if(strcmp(request[0],"02") == 0){
+                    int page = atoi(request[1]);
+                    write(fd,local_memory[page], PAGE_SIZE);
+                }               
+                else{
+                    if(strcmp(request[0],"03") == 0){
+                        //CLOSE SOCKET TODO
+                    // pageUsage(atoi(request[1]));
+                    }
+                    else{
+                        //Unsupported request
+                    }
+                }
+            }
         }
-        write(sockfd, net_buf, NET_BUF_SIZE); 
-        printf("\n---------Data Received---------\n"); 
-        nBytes = read(sockfd, net_buf, NET_BUF_SIZE); 
-        total += nBytes;
-        // process 
-        unsigned int size = nBytes;
-        printf("Read %ld bytes!\n",total);
-        printf("\n-------------------------------\n");
-        close(sockfd);
-        chunkNumber++;
-        if (nBytes <= 200) {
-            break; 
-        } 
+        free(request[0]);
+        free(request[1]);
     }
-    close(sockfd);
     return 0; 
 } 
