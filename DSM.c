@@ -12,6 +12,7 @@
 #include <time.h>
 #include <pthread.h>
 #include <fcntl.h> /* Added for the nonblocking socket */
+#include "DSMLib.h"
 
 typedef enum {LOG=0, TABLE=1} resource;
 
@@ -21,13 +22,6 @@ union semun {
     unsigned short  *array;
 };
 
-typedef struct
-{
-    int residing_node;
-    int valid;
-    time_t last_used;
-}table_entry;
-
 static int semaphores[2];
 static int sockfd, new_fd;  /* listen on sock_fd, new connection on new_fd */
 static int last_fd;	/* Thelast sockfd that is connected	*/
@@ -35,8 +29,10 @@ static int node_amount;
 static int page_amount;
 static long memory_amount;
 static char *logFile;
-table_entry* table;
-
+static int pages_per_node; 
+int* valid;
+int* node_sockets;
+int connected;
 static int semaphore_v(resource res){
 	struct sembuf sem_b;
 	sem_b.sem_num = 0; 
@@ -100,26 +96,8 @@ void closeServer(){
     del_semvalue();
 }
 
-int pageVictim(int source){
-    //Get the least recently used page of the source node
-    int victim = -1;
-    if (semaphore_p(TABLE)){
-        time_t victimDate = time(NULL);
-        for(int i = 0; i < page_amount; i++){
-            if(table[i].residing_node == source && table[i].valid && difftime(table[i].last_used,victimDate) < 0){
-                victimDate = table[i].last_used;
-                victim = i;
-            }
-        }
-			if (semaphore_v(TABLE)==-1)
-				exit(EXIT_FAILURE);
-	}
-    return victim;
-}
-
 void pageUsage(int page){
-    table[page].last_used = time(NULL);
-    table[page].valid = 0;
+    valid[page] = 0;
 }
 
 void serverLog(char* type, char* message){
@@ -161,7 +139,6 @@ void parseRequest(char* result[],char *request){
     }
     result[0] = type;
     result[1] = malloc(11);
-    request[2] = malloc(11);
     request = request + 3;
     
     while(request && *request != "\r"){
@@ -169,63 +146,62 @@ void parseRequest(char* result[],char *request){
             request++;
             i++;
     }
-
     result[1][i] = '\0';
-    if(strcmp(type,"01") == 0){
-        request= request + 2;
-        i= 0;
-        while(request && *request != "\r"){
-            result[2][i] = *request; 
-            request++;
-            i++;
-        }
-        result[2][i] = '\0';
-    }
-
 } 
 
+void initiallizeNodes(){
+    for(int i = 0; i < node_amount; i++){
+        DSM_node_pages(node_sockets[node_amount], pages_per_node);
+    }
+}
 
 void *clientHandler(void *arg){
     int n;
 	char buffer[BUFFER_SIZE];
-	char *request[3];
+	char *request[2];
 	//Read from client
     int fd = *((int*)arg); 
     if(recv(fd,buffer,sizeof(buffer),0) == -1)
         serverLog("ERROR",strerror(errno));    
     
     parseRequest(request, buffer);
-
+    /*
+    #define INIT_MESSAGE "00\r\n%d\r\n\r\n"
+    #define WRITE_MESSAGE "01\r\n%d\r\n\r\n"
+    #define READ_MESSAGE "02\r\n%d\r\n\r\n"
+    #define CLOSE_MESSAGE "03\r\n%d\r\n\r\n"
+    #define INVALIDATE_MESSAGE "04\r\n%d\r\n\r\n"
+    */
     if(strcmp(request[0],"01") == 0){
-        //Swap
-        if (semaphore_p(TABLE)){
-            void* intermediate = malloc(PAGE_SIZE);
-
-            char *result = strstr(buffer, "\r\n\r\n");
-            result = result + 4;
-            int pageToSend = pageVictim(fd);
-            //TODO get page and set it in intermediate
-            write(fd,&intermediate, (size_t)PAGE_SIZE);
-            //TODO save intermediate in local page
-            memcpy(intermediate,result,(size_t) PAGE_SIZE);
-            free(intermediate);
-			if (semaphore_v(TABLE)==-1)
-				exit(EXIT_FAILURE);
-	    }
-        free(request[2]);
+        //write
+        char *result = strstr(buffer, "\r\n\r\n");
+        void *temp_page;
+        result = result + 4;
+        int page = atoi(request[1]);
+        memcpy(temp_page,result,(size_t) PAGE_SIZE); 
+        DSM_page_write(node_sockets[page%node_amount],(int) page/node_amount, temp_page);
     }
     else{
         if(strcmp(request[0],"02") == 0){
-        //Close
-
+        void *temp_page;
+        int page = atoi(request[1]);
+        temp_page = DSM_page_read(node_sockets[page%node_amount],(int) page/node_amount);
+        write(fd,temp_page, PAGE_SIZE);
+        valid[page] = 1;
         }
         
         else{
             if(strcmp(request[0],"03") == 0){
-                //usage
-                pageUsage(atoi(request[1]));
+                //CLOSE SOCKET TODO
+               // pageUsage(atoi(request[1]));
             }
-            //Unsupported request
+            else{
+                if(strcmp(request[0],"04") == 0){
+                    int page = atoi(request[1]);
+                    valid[page] = 0;
+                }
+                //Unsupported request
+            }
         }
     }
         
@@ -267,22 +243,23 @@ int main(int argc, char* argv[]){
     int sin_size;
     char buffer[BUFFER_SIZE];
     int	i;
+    connected = 0;
 	srand(time(NULL));
 
     //Virtual address table creation
     page_amount = (memory_amount/PAGE_SIZE) + ( memory_amount % PAGE_SIZE == 0 ? 0 : 1);
 
-    table = malloc(page_amount* sizeof *table);
+    valid = malloc(sizeof(int) * page_amount);
+    node_sockets = malloc(sizeof(int) * page_amount);
+    pages_per_node = page_amount/node_amount;
+    for (int i = 0; i<page_amount; i++){
+        valid[i] = 1;
+    }
 
+    //Create socket
     if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
         perror("socket");
         exit(1);
-    }
-    int pages_per_node = page_amount/node_amount;
-    for (int i = 0; i<page_amount; i++){
-        table[i].last_used = time(NULL);
-        table[i].residing_node = i / pages_per_node;
-        table[i].valid = 1;
     }
     last_fd = sockfd;
 
@@ -323,6 +300,9 @@ int main(int argc, char* argv[]){
                     }
                     printf("server: got connection from %s\n", inet_ntoa(their_addr.sin_addr)); 
                     fcntl(new_fd, F_SETFL, O_NONBLOCK);
+                    node_sockets[connected++] = new_fd;
+                    if(connected == node_amount)
+                        initiallizeNodes();
                 last_fd = new_fd;
             }
             else{
@@ -334,7 +314,5 @@ int main(int argc, char* argv[]){
                 }
     
         }
-    }
-
-        
+    }   
 }

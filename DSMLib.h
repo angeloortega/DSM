@@ -1,9 +1,11 @@
-#include <sys/types.h> 
-
 void DSM_node_exit(int socket_fd);
-
-int DSM_malloc (int socket_fd, size_t size);
 
 int DSM_node_init(void);
 
-char * DSM_page_swap(int socket_fd,int sent, int received, char * body);
+int DSM_node_pages (int socket_fd, int amount);
+
+void * DSM_page_read(int socket_fd,int page);
+
+void DSM_page_write(int socket_fd,int page, void * body);
+
+void DSM_page_invalidate(int socket_fd,int page);
