@@ -19,12 +19,12 @@ int main()
     int fd = DSM_node_init(); 
     void** local_memory; 
     char buffer[BUFFER_SIZE];
-    char *request[2];
+    char *request[3];
     while (1) { 
         //Read from client
-        if(recv(fd,buffer,sizeof(buffer),0) == -1)
+        if( read(fd,&buffer,(size_t)BUFFER_SIZE) == -1)
             printf("ERROR");    
-        
+        printf("%s ", buffer);        
         parseRequest(request, buffer);
         /*
         #define INIT_MESSAGE "00\r\n%d\r\n\r\n"
@@ -33,15 +33,20 @@ int main()
         #define CLOSE_MESSAGE "03\r\n%d\r\n\r\n"
         #define INVALIDATE_MESSAGE "04\r\n%d\r\n\r\n"
         */
-        if(strcmp(request[0],"00")){
+        if(strcmp(request[0],"00") == 0){
+            printf("Initiallizing node\n");
             int pages_per_node = atoi(request[1]);
             char message[100];
             local_memory = malloc(sizeof(void*) * pages_per_node);
             for (int i = 0; i < pages_per_node; i++) {
                 local_memory[i] = malloc(sizeof(void*) * PAGE_SIZE);
             }
+            DSM_node_pages(fd,pages_per_node);
+            /*
             sprintf(message,"%d", pages_per_node);
-            write(fd,&message[0],(size_t) strlen(message));
+            memcpy(buffer,&message[0],(size_t) strlen(message) + 1);
+            send(fd,buffer,(size_t)strlen(message) + 1 , 0); 
+            */
         }
         else{
             if(strcmp(request[0],"01") == 0){
@@ -55,7 +60,8 @@ int main()
             else{
                 if(strcmp(request[0],"02") == 0){
                     int page = atoi(request[1]);
-                    write(fd,local_memory[page], PAGE_SIZE);
+                    memcpy(buffer,local_memory[page],(size_t) PAGE_SIZE);             
+                    DSM_page_read_response(fd,page, buffer,atoi(request[2]));
                 }               
                 else{
                     if(strcmp(request[0],"03") == 0){
@@ -63,13 +69,19 @@ int main()
                     // pageUsage(atoi(request[1]));
                     }
                     else{
+                        if(strcmp(request[0],"05") == 0){
+                        //CLOSE SOCKET TODO
+                        // pageUsage(atoi(request[1]));
+                        printf("received page %s!\n",request[1]);
+                        fflush(stdout);
+                        }
                         //Unsupported request
                     }
                 }
             }
         }
-        free(request[0]);
-        free(request[1]);
+        //free(request[0]);
+        //free(request[1]);
     }
     return 0; 
 } 

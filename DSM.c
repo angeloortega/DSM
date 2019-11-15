@@ -136,7 +136,16 @@ int nodePages(int node, int nodes, int pages){
     return  node >= pages % nodes ? (int) pages/nodes: (int) pages/nodes + 1;
 }
 
-void initiallizeNodes(){
+int findNode(int fd){
+    for(int i = 0; i<node_amount; i++){
+        if(node_sockets[i] == fd){
+            return i;
+        }
+    }
+    return -1;
+}
+
+void initializeNodes(){
     for(int i = 0; i < node_amount; i++){
         DSM_node_pages(node_sockets[i], nodePages(i, node_amount, page_amount));
     }
@@ -145,11 +154,11 @@ void initiallizeNodes(){
 void *clientHandler(void *arg){
     int n;
     char buffer[BUFFER_SIZE];
-    char *request[2];
+    char *request[3];
     int fd = *((int*)arg);
     while(1){
         //Read from client
-        if(recv(fd,buffer,sizeof(buffer),0) == -1)
+        if(read(fd,&buffer,(size_t)BUFFER_SIZE) == -1)
             serverLog("ERROR",strerror(errno));    
         
         parseRequest(request, buffer);
@@ -160,41 +169,67 @@ void *clientHandler(void *arg){
         #define CLOSE_MESSAGE "03\r\n%d\r\n\r\n"
         #define INVALIDATE_MESSAGE "04\r\n%d\r\n\r\n"
         */
-        if(strcmp(request[0],"01") == 0){
-            //write
-            char *result = strstr(buffer, "\r\n\r\n");
-            void *temp_page;
-            result = result + 4;
-            int page = atoi(request[1]);
-            memcpy(temp_page,result,(size_t) PAGE_SIZE); 
-            DSM_page_write(node_sockets[page%node_amount],(int) page/node_amount, temp_page);
+        if(strcmp(request[0],"00") == 0){
+            //Node successfully created
+            printf("Node %d was able to reserve %s pages of %d bytes",fd, request[1], PAGE_SIZE);
+            fflush(stdout); 
+            //TEST TODO REMOVE
+            int requester = findNode(fd);
+            DSM_page_read(node_sockets[5%node_amount],(int) 5/node_amount, requester);
         }
         else{
-            if(strcmp(request[0],"02") == 0){
+            if(strcmp(request[0],"01") == 0){
+                //write
+                char *result = strstr(buffer, "\r\n\r\n");
                 void *temp_page;
+                result = result + 4;
                 int page = atoi(request[1]);
-                temp_page = DSM_page_read(node_sockets[page%node_amount],(int) page/node_amount);
-                write(fd,temp_page, PAGE_SIZE);
+                memcpy(temp_page,result,(size_t) PAGE_SIZE); 
+                DSM_page_write(node_sockets[page%node_amount],(int) page/node_amount, temp_page);
                 valid[page] = 1;
             }
-            
             else{
-                if(strcmp(request[0],"03") == 0){
-                    //CLOSE SOCKET TODO
-                // pageUsage(atoi(request[1]));
+                if(strcmp(request[0],"02") == 0){
+                    void *temp_page;
+                    int page = atoi(request[1]);
+                    int requester = findNode(fd);
+                    DSM_page_read(node_sockets[page%node_amount],(int) page/node_amount, requester);
                 }
+                
                 else{
-                    if(strcmp(request[0],"04") == 0){
-                        int page = atoi(request[1]);
-                        valid[page] = 0;
+                    if(strcmp(request[0],"03") == 0){
+                        //CLOSE SOCKET TODO
+                    // pageUsage(atoi(request[1]));
                     }
-                    //Unsupported request
+                    else{
+                        if(strcmp(request[0],"04") == 0){
+                            int page = atoi(request[1]);
+                            valid[page] = 0;
+                        }
+
+                        else{
+                            if(strcmp(request[0],"05") == 0){
+                                //write
+                                char *result = strstr(buffer, "\r\n\r\n");
+                                void *temp_page;
+                                result = result + 4;
+                                int page = atoi(request[1]);
+                                int source = findNode(fd);
+                                int destination = atoi(request[2]);
+                                memcpy(temp_page,result,(size_t) PAGE_SIZE); 
+                                DSM_page_read_response(destination,(int) source*node_amount + page, temp_page,destination);
+                            }
+                        //Unsupported request
+                        }
+                        //Unsupported request
+                    }
                 }
             }
         }
-            
-        free(request[0]);
-        free(request[1]);
+
+
+        //free(request[0]);
+        //free(request[1]);
     }
 	pthread_exit(0);
 }
@@ -241,7 +276,7 @@ int main(int argc, char* argv[]){
 
     valid = malloc(sizeof(int) * page_amount);
     node_sockets = malloc(sizeof(int) * page_amount);
-    printf("page amount:%d node amount:%d",page_amount,node_amount);
+    printf("page amount:%d node amount:%d\n",page_amount,node_amount);
     fflush(stdout);
     pages_per_node = (int) page_amount/node_amount;
     for (int i = 0; i<page_amount; i++){
@@ -293,6 +328,6 @@ int main(int argc, char* argv[]){
             serverLog("ERROR",strerror(errno));
         }
         if(connected == node_amount)
-            initiallizeNodes();
+            initializeNodes();
     }   
 }

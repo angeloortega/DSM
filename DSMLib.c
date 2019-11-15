@@ -16,10 +16,9 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 
-
 void parseRequest(char* result[],char *request){
     const char * curLine = request;
-    char type[3];
+    char *type = malloc(sizeof(char*) * 3);
     int i = 0;
     if(request && request+1){
         type[0] = *request;
@@ -28,7 +27,7 @@ void parseRequest(char* result[],char *request){
     }
     result[0] = type;
     result[1] = malloc(11);
-    request = request + 3;
+    request = request + 4;
     
     while(request != '\0' && *request != '\r'){
             result[1][i] = *request; 
@@ -36,29 +35,33 @@ void parseRequest(char* result[],char *request){
             i++;
     }
     result[1][i] = '\0';
+    i = 0;
+    request = request + 2;
+    if(strcmp(result[0],"02") == 0 || strcmp(result[0],"05") == 0){ 
+        //#define READ_MESSAGE "02\r\n%d\r\n%d\r\n\r\n" //Read local page n, send it to m
+        result[2] = malloc(11);
+        while(request != '\0' && *request != '\r'){
+            result[2][i] = *request; 
+            request++;
+            i++;
+        }
+    }
 } 
 
 void DSM_node_exit(int socket_fd){
     char *net_buf = malloc(BUFFER_SIZE);
     sprintf(net_buf,CLOSE_MESSAGE,(int) socket_fd);
-    int message_length = strlen((char *)net_buf);
-    write(socket_fd,&net_buf, message_length);
+    int message_length = strlen((char *)net_buf) + 1;
+    send(socket_fd,net_buf, message_length,0);
     close(socket_fd);
     free(net_buf);
 }
 
-int DSM_node_pages (int socket_fd, int amount){
-    char *net_buf = malloc(BUFFER_SIZE);
+void DSM_node_pages (int socket_fd, int amount){
+    char net_buf[BUFFER_SIZE];
     sprintf(net_buf,INIT_MESSAGE, amount); //Sends the node the amount of pages to reserve
-    int message_length = strlen((char *)net_buf);
-    write(socket_fd,&net_buf, message_length);
-    read(socket_fd,&net_buf,BUFFER_SIZE); //Determines if the node was able to open the pages (net_buf > 0)
-    message_length = strlen((char *)net_buf);
-    int number = 0;
-    for(int i=0; i < message_length; i++){
-		number = number * 10 + (net_buf[i] - '0' );
-	}
-    return number;
+    int message_length = strlen(net_buf) + 1; 
+    send(socket_fd,net_buf, message_length,0);
 }
 
 int DSM_node_init(void){
@@ -80,13 +83,19 @@ int DSM_node_init(void){
     return sockfd; //Opens the socket
 }
 
-void *DSM_page_read(int socket_fd,int page){
+void DSM_page_read(int socket_fd,int page, int recipient){
     void *net_buf = malloc(BUFFER_SIZE);
-    sprintf((char *)net_buf,READ_MESSAGE,page);
+    sprintf((char *)net_buf,READ_MESSAGE,page,recipient);
+    int message_length = strlen((char *)net_buf) + 1;
+    send(socket_fd,&net_buf, message_length,0);
+}
+
+void DSM_page_read_response(int socket_fd,int page, void * body, int recipient){
+    void *net_buf = malloc(BUFFER_SIZE);
+    sprintf((char *)net_buf,READ_RESPONSE,page,recipient);
     int message_length = strlen((char *)net_buf);
-    write(socket_fd,&net_buf, message_length);
-    read(socket_fd,&net_buf,BUFFER_SIZE);
-    return net_buf;
+	memcpy(&((char *)net_buf)[message_length], &((char*)body)[0], PAGE_SIZE);
+    send(socket_fd,&net_buf, PAGE_SIZE + message_length, 0);
 }
 
 void DSM_page_write(int socket_fd,int page, void * body){
@@ -94,13 +103,13 @@ void DSM_page_write(int socket_fd,int page, void * body){
     sprintf((char *)net_buf,WRITE_MESSAGE,page);
     int message_length = strlen((char *)net_buf);
 	memcpy(&((char *)net_buf)[message_length], &((char*)body)[0], PAGE_SIZE);
-    write(socket_fd,&net_buf, PAGE_SIZE + message_length);
+    send(socket_fd,&net_buf, PAGE_SIZE + message_length, 0);
 }
 
 
 void DSM_page_invalidate(int socket_fd,int page){
     void *net_buf = malloc(BUFFER_SIZE);
     sprintf((char *)net_buf,INVALIDATE_MESSAGE,page);
-    int message_length = strlen((char *)net_buf);
-    write(socket_fd,&net_buf, message_length);
+    int message_length = strlen((char *)net_buf) + 1;
+    send(socket_fd,&net_buf, message_length, 0);
 }
