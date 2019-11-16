@@ -20,19 +20,19 @@ int main()
     void** local_memory; 
     char buffer[BUFFER_SIZE];
     char *request[3];
+    int readAmount;
     while (1) { 
         //Read from client
-        if( read(fd,&buffer,(size_t)BUFFER_SIZE) == -1)
-            printf("ERROR");    
+        readAmount = read(fd,&buffer,(size_t)BUFFER_SIZE);
+        if(readAmount == -1)
+            printf("ERROR");
+        printf("received %d bytes from %d\n",readAmount, fd);
+        fflush(stdout);        
+        if(*buffer == '\0')
+            //Connection closed
+            break;    
         printf("%s ", buffer);        
         parseRequest(request, buffer);
-        /*
-        #define INIT_MESSAGE "00\r\n%d\r\n\r\n"
-        #define WRITE_MESSAGE "01\r\n%d\r\n\r\n"
-        #define READ_MESSAGE "02\r\n%d\r\n\r\n"
-        #define CLOSE_MESSAGE "03\r\n%d\r\n\r\n"
-        #define INVALIDATE_MESSAGE "04\r\n%d\r\n\r\n"
-        */
         if(strcmp(request[0],"00") == 0){
             printf("Initiallizing node\n");
             int pages_per_node = atoi(request[1]);
@@ -60,7 +60,7 @@ int main()
             else{
                 if(strcmp(request[0],"02") == 0){
                     int page = atoi(request[1]);
-                    memcpy(buffer,local_memory[page],(size_t) PAGE_SIZE);             
+                    memcpy(buffer,local_memory[page],(size_t) PAGE_SIZE);       
                     DSM_page_read_response(fd,page, buffer,atoi(request[2]));
                 }               
                 else{

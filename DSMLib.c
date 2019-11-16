@@ -84,31 +84,31 @@ int DSM_node_init(void){
 }
 
 void DSM_page_read(int socket_fd,int page, int recipient){
-    void *net_buf = malloc(BUFFER_SIZE);
+    char net_buf[BUFFER_SIZE];
     sprintf((char *)net_buf,READ_MESSAGE,page,recipient);
     int message_length = strlen((char *)net_buf) + 1;
     send(socket_fd,&net_buf, message_length,0);
 }
 
 void DSM_page_read_response(int socket_fd,int page, void * body, int recipient){
-    void *net_buf = malloc(BUFFER_SIZE);
+    char net_buf[BUFFER_SIZE];
     sprintf((char *)net_buf,READ_RESPONSE,page,recipient);
-    int message_length = strlen((char *)net_buf);
-	memcpy(&((char *)net_buf)[message_length], &((char*)body)[0], PAGE_SIZE);
+    int message_length = strlen(net_buf);
+	memcpy(&((char *)net_buf)[message_length], body, PAGE_SIZE);
     send(socket_fd,&net_buf, PAGE_SIZE + message_length, 0);
 }
 
 void DSM_page_write(int socket_fd,int page, void * body){
-    void *net_buf = malloc(BUFFER_SIZE);
+    char net_buf[BUFFER_SIZE];
     sprintf((char *)net_buf,WRITE_MESSAGE,page);
-    int message_length = strlen((char *)net_buf);
-	memcpy(&((char *)net_buf)[message_length], &((char*)body)[0], PAGE_SIZE);
+    int message_length = strlen(net_buf);
+	memcpy(&((char *)net_buf)[message_length], body, PAGE_SIZE);
     send(socket_fd,&net_buf, PAGE_SIZE + message_length, 0);
 }
 
 
 void DSM_page_invalidate(int socket_fd,int page){
-    void *net_buf = malloc(BUFFER_SIZE);
+    char net_buf[BUFFER_SIZE];
     sprintf((char *)net_buf,INVALIDATE_MESSAGE,page);
     int message_length = strlen((char *)net_buf) + 1;
     send(socket_fd,&net_buf, message_length, 0);

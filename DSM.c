@@ -156,11 +156,14 @@ void *clientHandler(void *arg){
     char buffer[BUFFER_SIZE];
     char *request[3];
     int fd = *((int*)arg);
+    int readAmount = 0;
     while(1){
         //Read from client
-        if(read(fd,&buffer,(size_t)BUFFER_SIZE) == -1)
+        readAmount = read(fd,&buffer,(size_t)BUFFER_SIZE);
+        if(readAmount == -1)
             serverLog("ERROR",strerror(errno));    
-        
+
+        printf("received %d bytes from %d\n",readAmount, fd);
         parseRequest(request, buffer);
         /*
         #define INIT_MESSAGE "00\r\n%d\r\n\r\n"
@@ -171,17 +174,24 @@ void *clientHandler(void *arg){
         */
         if(strcmp(request[0],"00") == 0){
             //Node successfully created
-            printf("Node %d was able to reserve %s pages of %d bytes",fd, request[1], PAGE_SIZE);
+            printf("Node %d was able to reserve %s pages of %d bytes\n",fd, request[1], PAGE_SIZE);
             fflush(stdout); 
             //TEST TODO REMOVE
+            /*
+            char *result = malloc(sizeof(char*) * PAGE_SIZE);
+            void *temp_page = malloc(sizeof(char*) * PAGE_SIZE);
+            result[0] = 'n';
+            memcpy(temp_page,result,(size_t) PAGE_SIZE); 
+            DSM_page_write(node_sockets[5%node_amount],(int) 5/node_amount, temp_page);
             int requester = findNode(fd);
             DSM_page_read(node_sockets[5%node_amount],(int) 5/node_amount, requester);
+            */
         }
         else{
             if(strcmp(request[0],"01") == 0){
                 //write
                 char *result = strstr(buffer, "\r\n\r\n");
-                void *temp_page;
+                void *temp_page = malloc(sizeof(char*) * PAGE_SIZE);
                 result = result + 4;
                 int page = atoi(request[1]);
                 memcpy(temp_page,result,(size_t) PAGE_SIZE); 
@@ -190,7 +200,6 @@ void *clientHandler(void *arg){
             }
             else{
                 if(strcmp(request[0],"02") == 0){
-                    void *temp_page;
                     int page = atoi(request[1]);
                     int requester = findNode(fd);
                     DSM_page_read(node_sockets[page%node_amount],(int) page/node_amount, requester);
@@ -211,11 +220,12 @@ void *clientHandler(void *arg){
                             if(strcmp(request[0],"05") == 0){
                                 //write
                                 char *result = strstr(buffer, "\r\n\r\n");
-                                void *temp_page;
+                                void *temp_page = malloc(sizeof(char*) * PAGE_SIZE);
                                 result = result + 4;
                                 int page = atoi(request[1]);
                                 int source = findNode(fd);
-                                int destination = atoi(request[2]);
+                                int destination = node_sockets[atoi(request[2])];
+                                result[0] = 'b';
                                 memcpy(temp_page,result,(size_t) PAGE_SIZE); 
                                 DSM_page_read_response(destination,(int) source*node_amount + page, temp_page,destination);
                             }
@@ -275,7 +285,7 @@ int main(int argc, char* argv[]){
     page_amount = (memory_amount/PAGE_SIZE) + ( memory_amount % PAGE_SIZE == 0 ? 0 : 1);
 
     valid = malloc(sizeof(int) * page_amount);
-    node_sockets = malloc(sizeof(int) * page_amount);
+    node_sockets = malloc(sizeof(int) * node_amount);
     printf("page amount:%d node amount:%d\n",page_amount,node_amount);
     fflush(stdout);
     pages_per_node = (int) page_amount/node_amount;

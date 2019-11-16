@@ -10,5 +10,5 @@
 #define READ_MESSAGE "02\r\n%d\r\n%d\r\n\r\n" //Read local page n, send it to m
 #define CLOSE_MESSAGE "03\r\n%d\r\n\r\n"
 #define INVALIDATE_MESSAGE "04\r\n%d\r\n\r\n"
-#define READ_RESPONSE "05\r\n%d\r\n%d\r\n" //Read local page n, send it to m
+#define READ_RESPONSE "05\r\n%d\r\n%d\r\n\r\n" //Read local page n, send it to m
 #endif
