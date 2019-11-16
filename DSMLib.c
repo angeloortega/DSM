@@ -49,12 +49,11 @@ void parseRequest(char* result[],char *request){
 } 
 
 void DSM_node_exit(int socket_fd){
-    char *net_buf = malloc(BUFFER_SIZE);
+    char net_buf[BUFFER_SIZE];
     sprintf(net_buf,CLOSE_MESSAGE,(int) socket_fd);
     int message_length = strlen((char *)net_buf) + 1;
     send(socket_fd,net_buf, message_length,0);
     close(socket_fd);
-    free(net_buf);
 }
 
 void DSM_node_pages (int socket_fd, int amount){
@@ -62,6 +61,7 @@ void DSM_node_pages (int socket_fd, int amount){
     sprintf(net_buf,INIT_MESSAGE, amount); //Sends the node the amount of pages to reserve
     int message_length = strlen(net_buf) + 1; 
     send(socket_fd,net_buf, message_length,0);
+    
 }
 
 int DSM_node_init(void){

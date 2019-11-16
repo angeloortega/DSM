@@ -42,11 +42,7 @@ int main()
                 local_memory[i] = malloc(sizeof(void*) * PAGE_SIZE);
             }
             DSM_node_pages(fd,pages_per_node);
-            /*
-            sprintf(message,"%d", pages_per_node);
-            memcpy(buffer,&message[0],(size_t) strlen(message) + 1);
-            send(fd,buffer,(size_t)strlen(message) + 1 , 0); 
-            */
+
         }
         else{
             if(strcmp(request[0],"01") == 0){
@@ -62,6 +58,7 @@ int main()
                     int page = atoi(request[1]);
                     memcpy(buffer,local_memory[page],(size_t) PAGE_SIZE);       
                     DSM_page_read_response(fd,page, buffer,atoi(request[2]));
+                    free(request[2]);
                 }               
                 else{
                     if(strcmp(request[0],"03") == 0){
@@ -74,6 +71,7 @@ int main()
                         // pageUsage(atoi(request[1]));
                         printf("received page %s!\n",request[1]);
                         fflush(stdout);
+                        free(request[2]);
                         }
                         //Unsupported request
                     }

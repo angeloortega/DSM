@@ -28,7 +28,6 @@ union semun {
 
 static int semaphores[2];
 static int sockfd, new_fd;  /* listen on sock_fd, new connection on new_fd */
-static int last_fd;	/* Thelast sockfd that is connected	*/
 static int node_amount;
 static int page_amount;
 static int memory_amount;
@@ -123,13 +122,15 @@ void serverLog(char* type, char* message){
 void closeServer(){
 
     //Close server and clean up sockets and memory
-    for (int i=sockfd;i<=last_fd;i++){
-        close(i);
+    for (int i=0;i<=connected;i++){
+        close(node_sockets[i]);
     }
     close(sockfd);
     printf("Closing server...\n");
     serverLog("STATUS","server shutting down");
     del_semvalue();
+    free(node_sockets);
+    free(valid);
 }
 
 int nodePages(int node, int nodes, int pages){
@@ -177,15 +178,7 @@ void *clientHandler(void *arg){
             printf("Node %d was able to reserve %s pages of %d bytes\n",fd, request[1], PAGE_SIZE);
             fflush(stdout); 
             //TEST TODO REMOVE
-            /*
-            char *result = malloc(sizeof(char*) * PAGE_SIZE);
-            void *temp_page = malloc(sizeof(char*) * PAGE_SIZE);
-            result[0] = 'n';
-            memcpy(temp_page,result,(size_t) PAGE_SIZE); 
-            DSM_page_write(node_sockets[5%node_amount],(int) 5/node_amount, temp_page);
-            int requester = findNode(fd);
-            DSM_page_read(node_sockets[5%node_amount],(int) 5/node_amount, requester);
-            */
+
         }
         else{
             if(strcmp(request[0],"01") == 0){
@@ -196,6 +189,7 @@ void *clientHandler(void *arg){
                 int page = atoi(request[1]);
                 memcpy(temp_page,result,(size_t) PAGE_SIZE); 
                 DSM_page_write(node_sockets[page%node_amount],(int) page/node_amount, temp_page);
+                free(temp_page);
                 valid[page] = 1;
             }
             else{
@@ -203,6 +197,7 @@ void *clientHandler(void *arg){
                     int page = atoi(request[1]);
                     int requester = findNode(fd);
                     DSM_page_read(node_sockets[page%node_amount],(int) page/node_amount, requester);
+                    free(request[2]);
                 }
                 
                 else{
@@ -228,6 +223,8 @@ void *clientHandler(void *arg){
                                 result[0] = 'b';
                                 memcpy(temp_page,result,(size_t) PAGE_SIZE); 
                                 DSM_page_read_response(destination,(int) source*node_amount + page, temp_page,destination);
+                                free(temp_page);
+                                free(request[2]);
                             }
                         //Unsupported request
                         }
@@ -238,8 +235,8 @@ void *clientHandler(void *arg){
         }
 
 
-        //free(request[0]);
-        //free(request[1]);
+        free(request[0]);
+        free(request[1]);
     }
 	pthread_exit(0);
 }
@@ -286,7 +283,7 @@ int main(int argc, char* argv[]){
 
     valid = malloc(sizeof(int) * page_amount);
     node_sockets = malloc(sizeof(int) * node_amount);
-    printf("page amount:%d node amount:%d\n",page_amount,node_amount);
+    printf("page amount:%d\nnode amount:%d\n",page_amount,node_amount);
     fflush(stdout);
     pages_per_node = (int) page_amount/node_amount;
     for (int i = 0; i<page_amount; i++){
@@ -298,7 +295,6 @@ int main(int argc, char* argv[]){
         perror("socket");
         exit(1);
     }
-    last_fd = sockfd;
 
     my_addr.sin_family = AF_INET;         /* host byte order */
     my_addr.sin_port = htons(PORT);     /* short, network byte order */
@@ -319,14 +315,7 @@ int main(int argc, char* argv[]){
         perror("listen");
         exit(1);
     }
-/*
-    if ((new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size)) == -1) {
-        perror("accept");
-        }
-*/ 
-    //fcntl(last_fd, F_SETFL, O_NONBLOCK); /* Change the socket into non-blocking state	*/
-
-    
+  
     while(1){
         //Opening connection
         pthread_t thread;
