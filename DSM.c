@@ -15,8 +15,7 @@
 #include "DSMLib.h"
 #include <unistd.h>
 #include <arpa/inet.h>
-
-
+#include <signal.h>
 
 typedef enum {LOG=0, TABLE=1} resource;
 
@@ -36,7 +35,7 @@ static int pages_per_node;
 int* valid;
 int* node_sockets;
 int connected;
-
+pthread_t *threads;
 static int semaphore_v(resource res){
 	struct sembuf sem_b;
 	sem_b.sem_num = 0; 
@@ -81,15 +80,11 @@ static int set_semvalue(void) // This initializes the semaphore
 	int random = 0;
 	for(int i = 0; i < 2 ; i++){
 		random = rand()%8999+1000;
-		semaphores[(int) i] = semget((key_t) random,1, 0666 | IPC_CREAT);
+		semaphores[i] = semget((key_t) random,1, 0666 | IPC_CREAT);
 		if (semctl(semaphores[i], 0, SETVAL, sem_union) == -1)
 			value = 0;
 	}
 	return(value);
-}
-
-void pageUsage(int page){
-    valid[page] = 0;
 }
 
 void serverLog(char* type, char* message){
@@ -111,8 +106,9 @@ void serverLog(char* type, char* message){
 			perror("Logging error: ");
 	}
 	else{
-		printf("%d:%d:%d - %s: %s\n",  (*startTime).tm_hour,  (*startTime).tm_min,  (*startTime).tm_sec, type, message);
-		fprintf(f, "%d:%d:%d - %s: %s",  (*startTime).tm_hour, (*startTime).tm_min,  (*startTime).tm_sec, type, message);
+		printf("%02d:%02d:%02d - %s: %s\n",  (*startTime).tm_hour,  (*startTime).tm_min,  (*startTime).tm_sec, type, message);
+		fflush(stdout);
+        fprintf(f, "%02d:%02d:%02d - %s: %s",  (*startTime).tm_hour, (*startTime).tm_min,  (*startTime).tm_sec, type, message);
 		fclose(f);
 
 	}
@@ -122,19 +118,38 @@ void serverLog(char* type, char* message){
 void closeServer(){
 
     //Close server and clean up sockets and memory
-    for (int i=0;i<=connected;i++){
-        close(node_sockets[i]);
+    if(getpid() == getpid()){  // Only running on first thread
+        for (int i=0;i<=connected;i++){
+            pthread_cancel(threads[i]);
+            close(node_sockets[i]);
+        }
+        close(sockfd);
+        serverLog("STATUS","server shutting down");
+        del_semvalue();
+        free(node_sockets);
+        free(valid);
     }
-    close(sockfd);
-    printf("Closing server...\n");
-    serverLog("STATUS","server shutting down");
-    del_semvalue();
-    free(node_sockets);
-    free(valid);
+}
+
+void exitSignal(int sig)
+{
+    serverLog("STATUS","\nProgram interrupted...\n");
+	closeServer();
 }
 
 int nodePages(int node, int nodes, int pages){
     return  node >= pages % nodes ? (int) pages/nodes: (int) pages/nodes + 1;
+}
+
+void printPages(int socket){
+    printf("Memory map for node #%d: (Each cell contains the virtual memory number)\n", socket);
+    int amount = nodePages(socket,node_amount,page_amount);
+    for(int j = 0; j < amount; j++){
+        if(j%5 == 0)
+            printf("\n");
+        printf("[%05d]", socket + j*node_amount);
+    }
+    printf("\n");
 }
 
 int findNode(int fd){
@@ -158,56 +173,98 @@ void *clientHandler(void *arg){
     char *request[3];
     int fd = *((int*)arg);
     int readAmount = 0;
+    char message[128];
     while(1){
         //Read from client
         readAmount = read(fd,&buffer,(size_t)BUFFER_SIZE);
-        if(readAmount == -1)
-            serverLog("ERROR",strerror(errno));    
-
-        printf("received %d bytes from %d\n",readAmount, fd);
+        if(readAmount == -1){
+             if(errno==EINTR || errno==9){
+                printf("Interrupted thread\n");
+                fflush(stdout);
+                pthread_exit((void*) 1);
+                break;
+            }
+            serverLog("ERROR",strerror(errno));
+            continue;    
+        }
+        if(readAmount == 0 || *buffer == '\0'){
+            close(fd);
+            break;    
+        }    
+        sprintf(message,"received %d bytes from %d\n",readAmount, fd);
+        serverLog("THREAD",message);
         parseRequest(request, buffer);
-        /*
-        #define INIT_MESSAGE "00\r\n%d\r\n\r\n"
-        #define WRITE_MESSAGE "01\r\n%d\r\n\r\n"
-        #define READ_MESSAGE "02\r\n%d\r\n\r\n"
-        #define CLOSE_MESSAGE "03\r\n%d\r\n\r\n"
-        #define INVALIDATE_MESSAGE "04\r\n%d\r\n\r\n"
-        */
         if(strcmp(request[0],"00") == 0){
             //Node successfully created
-            printf("Node %d was able to reserve %s pages of %d bytes\n",fd, request[1], PAGE_SIZE);
+            sprintf(message,"Node %d was able to reserve %s pages of %d bytes\n",fd, request[1], PAGE_SIZE);
+            printPages(findNode(fd));
+            serverLog("THREAD",message);
             fflush(stdout); 
-            //TEST TODO REMOVE
-
         }
         else{
             if(strcmp(request[0],"01") == 0){
                 //write
                 char *result = strstr(buffer, "\r\n\r\n");
                 void *temp_page = malloc(sizeof(char*) * PAGE_SIZE);
-                result = result + 4;
                 int page = atoi(request[1]);
-                memcpy(temp_page,result,(size_t) PAGE_SIZE); 
-                DSM_page_write(node_sockets[page%node_amount],(int) page/node_amount, temp_page);
+
+                if(page >= page_amount){
+                    serverLog("ERROR","Attempting to reach out of bounds memory\n");       
+                    free(temp_page);
+                    continue;
+                }
+                int node =  node_sockets[page%node_amount];
+                if(node == -1){
+                    serverLog("ERROR","Attempting to reach closed node\n");
+                    free(temp_page);
+                    continue;
+                }
+                result = result + 4;
+                memcpy(temp_page,result,(size_t) PAGE_SIZE);
+                DSM_page_write(node, (int) page/node_amount, temp_page);
                 free(temp_page);
                 valid[page] = 1;
             }
             else{
                 if(strcmp(request[0],"02") == 0){
                     int page = atoi(request[1]);
+
+                    if(page >= page_amount){
+                        serverLog("ERROR","Attempting to reach out of bounds memory\n");                               
+                        continue;
+                    }
+                    int node =  node_sockets[page%node_amount];
+                    if(node == -1){
+                        serverLog("ERROR","Attempting to reach closed node\n");
+                        continue;
+                    }
                     int requester = findNode(fd);
-                    DSM_page_read(node_sockets[page%node_amount],(int) page/node_amount, requester);
+                    DSM_page_read(node,(int) page/node_amount, requester);
                     free(request[2]);
                 }
                 
                 else{
                     if(strcmp(request[0],"03") == 0){
-                        //CLOSE SOCKET TODO
-                    // pageUsage(atoi(request[1]));
+                        sprintf(message,"Node %d closing down!\n",fd);
+                        serverLog("ERROR",message);                               
+                        int node = findNode(fd);
+                        for(int i = 0; i < page_amount; i++){
+                            valid[node_amount*i + node] = 0; //Invalidate all pages related to node
+                        }
+                        node_sockets[node] = -1;
+                        close(fd);
+                        free(request[0]);
+                        free(request[1]);
+                        break;
                     }
                     else{
                         if(strcmp(request[0],"04") == 0){
                             int page = atoi(request[1]);
+
+                            if(page >= page_amount){
+                                serverLog("ERROR","Attempting to reach out of bounds memory\n");                               
+                                continue;
+                            }   
                             valid[page] = 0;
                         }
 
@@ -218,23 +275,33 @@ void *clientHandler(void *arg){
                                 void *temp_page = malloc(sizeof(char*) * PAGE_SIZE);
                                 result = result + 4;
                                 int page = atoi(request[1]);
+
+                                if(page >= page_amount){
+                                    serverLog("ERROR","Attempting to reach out of bounds memory\n");                               
+                                    free(temp_page);
+                                    free(request[2]);
+                                    continue;
+                                }
+
                                 int source = findNode(fd);
                                 int destination = node_sockets[atoi(request[2])];
-                                result[0] = 'b';
+                                if(destination == -1){
+                                    serverLog("ERROR","Attempting to reach] closed node\n");                               
+                                    free(temp_page);
+                                    free(request[2]);
+                                    continue;
+                                }
                                 memcpy(temp_page,result,(size_t) PAGE_SIZE); 
-                                DSM_page_read_response(destination,(int) source*node_amount + page, temp_page,destination);
+                                DSM_page_read_response(destination,(int) page*node_amount + source, temp_page,destination);
                                 free(temp_page);
                                 free(request[2]);
                             }
                         //Unsupported request
                         }
-                        //Unsupported request
                     }
                 }
             }
         }
-
-
         free(request[0]);
         free(request[1]);
     }
@@ -278,12 +345,19 @@ int main(int argc, char* argv[]){
     int	i;
     connected = 0;
 	srand(time(NULL));
+    signal(SIGINT, exitSignal);
     //Virtual address table creation
     page_amount = (memory_amount/PAGE_SIZE) + ( memory_amount % PAGE_SIZE == 0 ? 0 : 1);
-
     valid = malloc(sizeof(int) * page_amount);
     node_sockets = malloc(sizeof(int) * node_amount);
-    printf("page amount:%d\nnode amount:%d\n",page_amount,node_amount);
+    threads = malloc(sizeof(pthread_t) * node_amount);
+    char message[128];
+    if(page_amount == 0 || node_amount == 0){
+        printf("Invalid parameters, include -N node_amount and -M memory_amount\n");
+        exit(1);
+    }
+    sprintf(message, "page amount:%d node amount:%d\n",page_amount,node_amount);
+    serverLog("INFO",message);                               
     fflush(stdout);
     pages_per_node = (int) page_amount/node_amount;
     for (int i = 0; i<page_amount; i++){
@@ -318,14 +392,17 @@ int main(int argc, char* argv[]){
   
     while(1){
         //Opening connection
-        pthread_t thread;
         new_fd = accept(sockfd,(struct sockaddr *)&their_addr, &sin_size);
+        if(new_fd == -1){
+            break;
+        }
         //fcntl(new_fd, F_SETFL, O_NONBLOCK); /* Change the socket into non-blocking state	*/
-        node_sockets[connected++] = new_fd;
-        int threadResult = pthread_create(&thread, NULL, clientHandler,(void*)&new_fd);
+        node_sockets[connected] = new_fd;
+        int threadResult = pthread_create(&threads[connected], NULL, clientHandler,(void*)&new_fd);
         if(threadResult != 0){
             serverLog("ERROR",strerror(errno));
         }
+        connected++;
         if(connected == node_amount)
             initializeNodes();
     }   

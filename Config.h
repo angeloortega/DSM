@@ -4,7 +4,7 @@
 #define IP "127.0.0.1"
 #define BUFFER_SIZE 2048 //525312
 #define QUEUE_SIZE 25
-#define PAGE_SIZE 1024//524288
+#define PAGE_SIZE 4096//524288
 #define INIT_MESSAGE "00\r\n%d\r\n\r\n"
 #define WRITE_MESSAGE "01\r\n%d\r\n\r\n"
 #define READ_MESSAGE "02\r\n%d\r\n%d\r\n\r\n" //Read local page n, send it to m
