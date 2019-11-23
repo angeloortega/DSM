@@ -2,6 +2,7 @@
 
 
 void parseRequest(char* result[],char *request){
+    //Gets a request from a child and populates the result with information such as message type, page and optionally a recipient (for reading a page)
     const char * curLine = request;
     char *type = malloc(sizeof(char*) * 3);
     int i = 0;
@@ -23,7 +24,6 @@ void parseRequest(char* result[],char *request){
     i = 0;
     request = request + 2;
     if(strcmp(result[0],"02") == 0 || strcmp(result[0],"05") == 0){ 
-        //#define READ_PAGE "02\r\n%d\r\n%d\r\n\r\n" //Read local page n, send it to m
         result[2] = malloc(11);
         while(*request != '\0' && *request != '\r'){
             result[2][i] = *request; 
@@ -34,6 +34,7 @@ void parseRequest(char* result[],char *request){
 } 
 
 int beginConnection(void){
+    //Create a connection and return the file descriptor if done correctly
     struct sockaddr_in addr_con; 
     int addrlen = sizeof(addr_con); 
     addr_con.sin_family = AF_INET; 
@@ -52,6 +53,7 @@ int beginConnection(void){
 }
 
 void exitConnection(int socket_fd){
+    //Close a connection
     char message[BUFFER_SIZE];
     sprintf(message,CLOSE_CONNECTION,(int) socket_fd);
     int message_length = strlen((char *)message) + 1;
@@ -60,6 +62,7 @@ void exitConnection(int socket_fd){
 }
 
 void readPage(int socket_fd,int page, int recipient){
+    //Read virtual page and send it to back to recipient
     char message[BUFFER_SIZE];
     sprintf((char *)message,READ_PAGE,page,recipient);
     int message_length = strlen((char *)message) + 1;
@@ -67,6 +70,7 @@ void readPage(int socket_fd,int page, int recipient){
 }
 
 void returnPage(int socket_fd,int page, void * body, int recipient){
+    //Node answer of virtual page, sent to recipient
     char message[BUFFER_SIZE];
     sprintf((char *)message,READ_RESULT,page,recipient);
     int message_length = strlen(message);
@@ -75,6 +79,7 @@ void returnPage(int socket_fd,int page, void * body, int recipient){
 }
 
 void writePage(int socket_fd,int page, void * body){
+    //When a page is modified it is stored in virtual page.
     char message[BUFFER_SIZE];
     sprintf((char *)message,WRITE_PAGE,page);
     int message_length = strlen(message);
@@ -83,6 +88,7 @@ void writePage(int socket_fd,int page, void * body){
 }
 
 void sendMessage(int socket_fd,int page, char* MESSAGE){
+    //Generic messages such as write response or reserve pages
     char message[BUFFER_SIZE];
     sprintf((char *)message,MESSAGE,page);
     int message_length = strlen(message) + 1;
@@ -90,10 +96,11 @@ void sendMessage(int socket_fd,int page, char* MESSAGE){
 }
 
 void readResponse(ProgramInformation info){
+    //Handles everything a client needs to connect to the server and read back responses
     char buffer[BUFFER_SIZE];
     char *request[3];
     int readAmount;
-    //Read from client
+    //Read from server
     readAmount = recv(info->fd,&buffer,(size_t)BUFFER_SIZE,0);
     if(readAmount == -1)
         printf("ERROR");
@@ -117,6 +124,9 @@ void readResponse(ProgramInformation info){
 }
 
 char* accessMemory(ProgramInformation info, int address, int writeFlag){
+    //Access memory from a program. The info input contains all information regarding the program
+    //Address contains the virtual address that's going to be accessed
+    //writeFlag tells us if the access is to write to the page, which invalidates it.
     int page = address / PAGE_SIZE;
     if(writeFlag){
         info->pageValid[page] = 0;
@@ -124,9 +134,11 @@ char* accessMemory(ProgramInformation info, int address, int writeFlag){
     int offset = address % PAGE_SIZE;
     int virtualPage = page % info->pagesPerNode;
     if(info->pageBuffer[virtualPage] != page){
+        //Requested page is not in main memory, based on locality principle
         printf("Swapping page %d for page %d!\n",info->pageBuffer[virtualPage],page);
         fflush(stdout);
         if(!info->pageValid[page]){
+            //Page is written to node
             writePage(info->fd, info->pageBuffer[virtualPage],info->localMemory[virtualPage]);
             readResponse(info);
             fflush(stdout);
@@ -141,6 +153,7 @@ char* accessMemory(ProgramInformation info, int address, int writeFlag){
     return &info->localMemory[virtualPage][offset];
 }
 int allocate(ProgramInformation info,int bytes){
+    //searches for a block of contiguous memory big enough for the variable in question
     for(int i = 0; i < info->pageAmount; i++){
         Item busy = info->pageInfo[i].busyMemory;
         //busyMemory not initialized
@@ -192,6 +205,7 @@ int allocate(ProgramInformation info,int bytes){
 }
 
 void deallocate(ProgramInformation info,int address){
+    //Frees the block which contains address
     int page = (int) address / PAGE_SIZE;
     int offset = (int) address % PAGE_SIZE;
     if(address < 0){
@@ -240,6 +254,7 @@ void deallocate(ProgramInformation info,int address){
 }
 
 ProgramInformation setupProgram(){
+    //Initializes a program
     ProgramInformation info = malloc(sizeof(ProgramInformation));
     
     int totalMemory;
@@ -279,6 +294,7 @@ ProgramInformation setupProgram(){
 
 
 void closeProgram(ProgramInformation info){
+    //Closes a program and frees memory
     exitConnection(info->fd);
     printf("Freeing up local memory and shutting down\n");
     for(int i = 0; i < info->pagesPerNode; i++) free(info->localMemory[i]);

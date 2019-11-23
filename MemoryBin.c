@@ -1,10 +1,9 @@
 #include "VirtualLibrary.h"
-
-
 int fd; 
 char** realMemory; 
 int nodePageCount;
 void closeNode(){
+    //Frees memory and closes socket so binding is not blocked
     printf("Closing socket connection\n");
     fflush(stdout);  
     exitConnection(fd);
@@ -13,7 +12,7 @@ void closeNode(){
 }
 
 void printMemory(){
-    //
+    //Prints a memory map of allocated values
     printf("Memory map:\n");
     for(int i = 0; i < nodePageCount; i++){
     printf("#%d\n", i);

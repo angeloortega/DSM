@@ -7,6 +7,7 @@ int main(){
     printf("Setting up client connection...\n");   
     
     info = setupProgram();
+    //Addresses contains all of the addresses needed to be referenced later
     int addresses[200];
     int x_dir = allocate(info, sizeof(int));
     int * x_pointer = (int *) accessMemory(info,x_dir, WRITE_FLAG);
