@@ -253,7 +253,7 @@ int main(int argc, char* argv[]){
     threads = malloc(sizeof(pthread_t) * nodeAmount);
     char message[128];
     if(pageAmount == 0 || nodeAmount == 0){
-        printf("InpageTable parameters, include -N nodeAmount and -M memoryAmount\n");
+        printf("Invalid parameters, include -N nodeAmount and -M memoryAmount\n");
         exit(1);
     }
     printf("Server waiting for connections...\n");
