@@ -34,12 +34,12 @@ void printLog(char* type, char* message){
 void finishServer(){
     //Close server and clean up sockets and memory
     if(getpid() == getpid()){  // Only running on first thread
-        for (int i=0;i<=connected;i++){
+        for (int i=0;i<connected;i++){
             pthread_cancel(threads[i]); //Cancel any pending execution
             close(openSockets[i]);
         }
         close(sockfd);
-        printLog("STATUS","server shutting down");
+        printLog("STATUS","server shutting down\n");
         free(openSockets);
         free(pageTable);
         sem_destroy(&semaphore);

@@ -2,16 +2,31 @@
 
 
 int fd; 
-char** local_memory; 
-
+char** realMemory; 
+int nodePageCount;
 void closeNode(){
     printf("Closing socket connection\n");
     fflush(stdout);  
     exitConnection(fd);
-    free(local_memory);
+    free(realMemory);
     exit(1);
 }
 
+void printMemory(){
+    //
+    printf("Memory map:\n");
+    for(int i = 0; i < nodePageCount; i++){
+    printf("#%d\n", i);
+        printf("[");
+        for(int j = 0; j < PAGE_SIZE; j++){
+            if(realMemory[i][j] != '\0'){
+                printf("|%d|",realMemory[i][j]);
+            }
+        }
+        printf("]\n");
+    }
+    fflush(stdout);
+}
 void interruption(int sig)
 {
     printf("\n^C Pressed...\n");
@@ -26,7 +41,7 @@ int main()
     int readAmount;
     signal(SIGINT, interruption);
     while(1) { 
-        printf("waiting for requests...\n");
+        printf("Waiting for requests...\n");
         //Read from client
         readAmount = read(fd,&buffer,(size_t)BUFFER_SIZE);
         if(readAmount == -1){
@@ -41,31 +56,32 @@ int main()
         printf("Received a #%s request from %d\n",request[0], fd);
         if(strcmp(request[0],"00") == 0){
             printf("Initiallizing node...\n");
-            int pages_per_node = atoi(request[1]);
+             nodePageCount = atoi(request[1]);
             char message[100];
-            local_memory = malloc(sizeof(char*) * pages_per_node);
-            for (int i = 0; i < pages_per_node; i++) {
-                local_memory[i] = malloc(sizeof(char*) * PAGE_SIZE);
-                if(!local_memory[i]){
+            realMemory = malloc(sizeof(char*) * nodePageCount);
+            for (int i = 0; i < nodePageCount; i++) {
+                realMemory[i] = malloc(sizeof(char*) * PAGE_SIZE);
+                if(!realMemory[i]){
                     printf("Memory could not be reserved!\n");
                     exit(1);
                 }
             }
-            sendMessage(fd,pages_per_node,BEGIN_CONNECTION);
+            sendMessage(fd,nodePageCount,BEGIN_CONNECTION);
             printf("Memory initialized correctly!\n");
         }
         else if(strcmp(request[0],"01") == 0){
                 //write
                 char *result = strstr(buffer, "\r\n\r\n");
-                char *temp_page;
+                char *middlePage;
                 result = result + 4;
                 int page = atoi(request[1]);
-                memcpy(local_memory[page],result,(size_t) PAGE_SIZE);
+                memcpy(realMemory[page],result,(size_t) PAGE_SIZE);
                 printf("Received a write request from %d\n", fd);
+                printMemory();
         }
         else if(strcmp(request[0],"02") == 0){
                 int page = atoi(request[1]);
-                memcpy(buffer,local_memory[page],(size_t) PAGE_SIZE);       
+                memcpy(buffer,realMemory[page],(size_t) PAGE_SIZE);       
                 returnPage(fd,page, buffer,atoi(request[2]));
                 free(request[2]);
                 printf("Received a read request from %d\n", fd);

@@ -5,7 +5,7 @@
             "label": "gcc build active file",
             "command": "/usr/bin/gcc",
             "args": ["-pthread",
-                "${fileDirname}/DSMLib.c",
+                "${fileDirname}/VirtualLibrary.c",
                 "-g",
                 "${file}",
                 "-o",

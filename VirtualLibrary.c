@@ -124,9 +124,9 @@ char* accessMemory(ProgramInformation info, int address, int writeFlag){
     int offset = address % PAGE_SIZE;
     int virtualPage = page % info->pagesPerNode;
     if(info->pageBuffer[virtualPage] != page){
-        printf("Swapping page %d for page %d!\n",virtualPage, info->pageBuffer[virtualPage] );
+        printf("Swapping page %d for page %d!\n",info->pageBuffer[virtualPage],page);
         fflush(stdout);
-        if(!info->pageValid[info->pageBuffer[virtualPage]]){
+        if(!info->pageValid[page]){
             writePage(info->fd, info->pageBuffer[virtualPage],info->localMemory[virtualPage]);
             readResponse(info);
             fflush(stdout);
@@ -194,6 +194,11 @@ int allocate(ProgramInformation info,int bytes){
 void deallocate(ProgramInformation info,int address){
     int page = (int) address / PAGE_SIZE;
     int offset = (int) address % PAGE_SIZE;
+    if(address < 0){
+        printf("Can't free out of bounds memory!\n");
+        fflush(stdout);
+        exit(1);
+    }
     Item previous = info->pageInfo[page].busyMemory;
     Item busy = previous->next;
     //only 1 node
@@ -202,6 +207,7 @@ void deallocate(ProgramInformation info,int address){
         free(previous);
         return;
     }
+    //first node
     if(previous && previous->beginning <= offset && previous->end > offset){
         info->pageInfo[page].busyMemory = busy;
         free(previous);
@@ -212,6 +218,14 @@ void deallocate(ProgramInformation info,int address){
             //Check space between nodes
             if(busy->beginning <= offset && busy->end > offset){
                 previous->next = busy->next;
+                free(busy);
+                return;
+            }
+        }
+        else{
+            //Last node
+            if(busy->beginning <= offset && busy->end > offset){
+                previous->next = NULL;
                 free(busy);
                 return;
             }
