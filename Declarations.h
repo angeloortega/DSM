@@ -44,10 +44,10 @@ struct ProgramInformation{
     char **localMemory;
     int *pageBuffer;
     int *pageValid;
-    Page pageInfo;
     int fd;
     int pageAmount;
     int nodeAmount; 
     int pagesPerNode;
+    Page pageInfo;
 };
 typedef struct ProgramInformation * ProgramInformation;

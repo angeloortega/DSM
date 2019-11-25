@@ -255,7 +255,7 @@ void deallocate(ProgramInformation info,int address){
 
 ProgramInformation setupProgram(){
     //Initializes a program
-    ProgramInformation info = malloc(sizeof(ProgramInformation));
+    ProgramInformation info = malloc(sizeof(struct ProgramInformation));
     
     int totalMemory;
     int nodeAmount;
