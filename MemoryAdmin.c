@@ -78,6 +78,8 @@ void *threadHandler(void *arg){
     while(1){
         //Read from client
         readAmount = read(fd,&buffer,(size_t)BUFFER_SIZE);
+	printLog("Custom", buffer);
+	//printLog("Custom", buffer);
         if(readAmount == -1){
              if(errno==EINTR || errno==9){
                 printf("Interrupted thread\n");
